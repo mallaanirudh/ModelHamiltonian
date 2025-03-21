@@ -2,7 +2,7 @@ r"""MoHa utilities submodule."""
 
 import numpy as np
 
-from scipy.sparse import diags, csr_matrix
+from scipy.sparse import diags, csr_matrix, issparse
 
 import re
 
@@ -169,13 +169,29 @@ def fill_o2(o2):
         o2[j, i, l, k] = o2[i, j, k, l]
         o2[i, j, l, k] = -o2[i, j, k, l]
     return o2
-import numpy as np
-from scipy.sparse import issparse
-from scipy.sparse import lil_matrix, csr_matrix
 
 
 import numpy as np
-from scipy.sparse import issparse, lil_matrix
+import scipy.sparse as sp
+
+def enforce_pg_symmetry(eri: np.ndarray) -> np.ndarray:
+    """Enforces point-group symmetry."""
+    return 0.5 * (eri + eri.transpose(2, 3, 0, 1))
+
+def enforce_hermitian_symmetry(eri: np.ndarray) -> np.ndarray:
+    """Enforces Hermitian symmetry."""
+    return 0.5 * (eri + eri.transpose(2, 3, 0, 1).conj())
+
+def apply_permutational_symmetry(eri: np.ndarray) -> np.ndarray:
+    """Enforces permutational symmetry."""
+    eri = 0.5 * (eri + eri.transpose(1, 0, 3, 2))
+    eri = 0.5 * (eri + eri.transpose(2, 3, 0, 1))
+    eri = 0.5 * (eri + eri.transpose(3, 2, 1, 0))
+    return eri
+
+def enforce_trs_symmetry(eri: np.ndarray) -> np.ndarray:
+    """Enforces time-reversal symmetry."""
+    return 0.5 * (eri + eri.transpose(2, 3, 0, 1).conj())
 
 def antisymmetrize_two_electron_integrals(
     eri: np.ndarray, 
@@ -201,23 +217,14 @@ def antisymmetrize_two_electron_integrals(
     Returns:
         Antisymmetrized two-electron integrals as a dense array.
     """
-    # Convert sparse matrix to dense array if necessary
-    
 
+    # Convert sparse matrix to dense if necessary
     if sp.issparse(eri):
-        print("DEBUG: ERI is sparse before conversion:", type(eri))
-    
-    # Convert to LIL format first
-        if isinstance(eri, sp.csr_matrix):
-            eri = eri.tolil()
-            print("DEBUG: Converted ERI to LIL for modification.")
-    
-    # Convert to dense before reshaping
         eri = eri.toarray()
-        
-        print("DEBUG: Converted ERI to dense before reshaping:", type(eri))
-    assert isinstance(eri,np.ndarray),f"ERL SHOULD BE A NUMPY ARRAY BYT GOT {type(eri)}"
-    # Validate and reshape ERI
+
+    assert isinstance(eri, np.ndarray), f"ERI should be a NumPy array, but got {type(eri)}"
+
+    # Reshape if necessary
     if eri.ndim == 2:
         n_orbitals = int(np.sqrt(eri.shape[0]))
         if n_orbitals ** 2 != eri.shape[0]:
@@ -226,33 +233,24 @@ def antisymmetrize_two_electron_integrals(
     elif eri.ndim != 4:
         raise ValueError(f"ERI must be a 4D array or a 2D array that can be reshaped into 4D, but got shape {eri.shape}.")
 
-    print(f"DEBUG: ERI reshaped to {eri.shape}")  # Debugging
-
     # Antisymmetrization (Pauli exclusion principle)
     antisymmetrized_eri = 0.5 * (eri - eri.transpose(1, 0, 2, 3))
     antisymmetrized_eri -= 0.5 * (eri.transpose(0, 1, 3, 2) - eri.transpose(1, 0, 3, 2))
 
-    # Apply symmetries if requested
+    # Apply optional symmetries
     if enforce_pg_symmetry:
-        antisymmetrized_eri = 0.5 * (antisymmetrized_eri + antisymmetrized_eri.transpose(2, 3, 0, 1))
+        antisymmetrized_eri = enforce_pg_symmetry(antisymmetrized_eri)
 
     if enforce_hermitian:
-        antisymmetrized_eri = 0.5 * (antisymmetrized_eri + antisymmetrized_eri.transpose(2, 3, 0, 1).conj())
+        antisymmetrized_eri = enforce_hermitian_symmetry(antisymmetrized_eri)
+
+    if enforce_permutational_symmetry:
+        antisymmetrized_eri = apply_permutational_symmetry(antisymmetrized_eri)
+
+    if enforce_trs:
+        antisymmetrized_eri = enforce_trs_symmetry(antisymmetrized_eri)
 
     if enforce_spin_symmetry_func and n_spin_orbitals:
         antisymmetrized_eri = enforce_spin_symmetry_func(antisymmetrized_eri, n_spin_orbitals)
 
-    if enforce_permutational_symmetry:
-        antisymmetrized_eri = 0.5 * (antisymmetrized_eri + antisymmetrized_eri.transpose(1, 0, 3, 2))
-        antisymmetrized_eri = 0.5 * (antisymmetrized_eri + antisymmetrized_eri.transpose(2, 3, 0, 1))
-        antisymmetrized_eri = 0.5 * (antisymmetrized_eri + antisymmetrized_eri.transpose(3, 2, 1, 0))
-
-    if enforce_trs:
-        antisymmetrized_eri = 0.5 * (antisymmetrized_eri + antisymmetrized_eri.transpose(2, 3, 0, 1).conj())
-    print("DEBUG: ERI type after antisymmetrization:", type(eri))
-    
-
     return antisymmetrized_eri
-
-
-
