@@ -88,7 +88,7 @@ def test_ethylene():
     assert np.allclose(h, test)
 
     assert v.shape[0] == 4
-    # assert np.allclose(v, test)
+    #assert np.allclose(v, test)
     assert ecore == 0.
 
     h = hubbard.generate_one_body_integral(basis='spatial basis', dense=True)

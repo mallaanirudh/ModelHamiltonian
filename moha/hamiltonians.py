@@ -1,13 +1,18 @@
 r"""Model Hamiltonian classes."""
 
 import numpy as np
+import warnings
+import pytest
+
 
 from scipy.sparse import csr_matrix, diags, lil_matrix, hstack, vstack, \
-    SparseEfficiencyWarning
+SparseEfficiencyWarning
 
 from .api import HamiltonianAPI
 
-from .utils import convert_indices, expand_sym
+from .utils import convert_indices, expand_sym, antisymmetrize_two_electron_integrals
+from .utils import enforce_pg_symmetry, enforce_hermitian_symmetry, apply_permutational_symmetry, enforce_trs_symmetry
+
 
 from typing import Union
 
@@ -15,7 +20,7 @@ from moha.rauk.rauk import assign_rauk_parameters
 from moha.rauk.PariserParr import compute_overlap
 import warnings
 
-warnings.simplefilter('ignore',
+warnings.simplefilter('always',
                       SparseEfficiencyWarning)
 
 __all__ = [
@@ -40,7 +45,12 @@ class HamPPP(HamiltonianAPI):
             sym=1,
             atom_dictionary=None,
             bond_dictionary=None,
-            orbital_overlap=None
+            orbital_overlap=None,
+            enforce_pg_symmetry = False,
+            enforce_trs = False,
+            enforce_spin_symmetry = False,
+            enforce_permutational_symmetry = False,
+
     ):
         r"""
         Initialize Pariser-Parr-Pople Hamiltonian.
@@ -85,7 +95,7 @@ class HamPPP(HamiltonianAPI):
             \end{align}
 
         """
-        self._sym = sym
+        self._sym = sym if sym is not None else 1
         self.n_sites = None
         self.connectivity = connectivity
         self.alpha = alpha
@@ -103,6 +113,20 @@ class HamPPP(HamiltonianAPI):
         self.bond_dictionary = bond_dictionary
         self.atom_dictionary = atom_dictionary
         self.orbital_overlap = orbital_overlap
+        self.enforce_pg_symmetry = enforce_pg_symmetry
+        self.enforce_trs = enforce_trs
+        self.enforce_spin_symmetry = enforce_spin_symmetry
+        self.enforce_permutational_symmetry = enforce_permutational_symmetry
+
+        self.two_body = self.generate_two_body_integral(basis="spatial basis", dense=False, sym=self._sym)
+        if self.two_body is not None:
+            self.two_body = antisymmetrize_two_electron_integrals(
+                self.two_body,
+                enforce_pg_symmetry=self.enforce_pg_symmetry,
+                enforce_trs=self.enforce_trs,
+                enforce_permutational_symmetry=self.enforce_permutational_symmetry
+            )
+
 
     def generate_zero_body_integral(self):
         r"""Generate zero body integral.
@@ -283,6 +307,10 @@ class HamHub(HamPPP):
             orbital_overlap=None,
             Bz=None,
             gamma=None,
+            enforce_pg_symmetry=False,
+            enforce_trs=False,
+            enforce_spin_symmetry=False,
+            enforce_permutational_symmetry=False,
     ):
         r"""
         Hubbard Hamiltonian.
@@ -290,22 +318,30 @@ class HamHub(HamPPP):
         Parameters
         ----------
         connectivity: list, np.ndarray
-            list of tuples that specifies sites and bonds between them
+            List of tuples that specify sites and bonds between them
             or symmetric np.ndarray of shape (n_sites, n_sites) that specifies
             the connectivity between sites.
             For example, for a linear chain of 4 sites, the connectivity
             can be specified as [(C1, C2, 1), (C2, C3, 1), (C3, C4, 1)]
         alpha: float
-            specifies the site energy if all sites are equivalent.
+            Specifies the site energy if all sites are equivalent.
             Default value is the 2p-pi orbital of Carbon
         beta: float
-            specifies the resonance energy, hopping term,
+            Specifies the resonance energy, hopping term,
             if all bonds are equivalent.
             The default value is appropriate for a pi-bond between Carbon atoms
         u_onsite: np.ndarray
-            on-site Coulomb interaction; 1d np.ndarray
+            On-site Coulomb interaction; 1D np.ndarray
         sym: int
-             symmetry of the Hamiltonian: int [1, 2, 4, 8]. Default is 1
+            Symmetry of the Hamiltonian: int [1, 2, 4, 8]. Default is 1
+        enforce_pg_symmetry: bool
+            Whether to enforce point-group symmetry during antisymmetrization
+        enforce_trs: bool
+            Whether to enforce time-reversal symmetry
+        enforce_spin_symmetry: bool
+            Whether to enforce spin symmetry
+        enforce_permutational_symmetry: bool
+            Whether to enforce permutational symmetry
 
         Notes
         -----
@@ -322,16 +358,39 @@ class HamHub(HamPPP):
             alpha=alpha,
             beta=beta,
             u_onsite=u_onsite,
-            gamma=None,
+            gamma=None,  # Set gamma to None for Hubbard Model
             atom_dictionary=atom_dictionary,
+            enforce_pg_symmetry=enforce_pg_symmetry,
             bond_dictionary=bond_dictionary,
             orbital_overlap=orbital_overlap,
             charges=np.array(0),
             sym=sym
         )
+
         self.charges = np.zeros(self.n_sites)
+        self.enforce_pg_symmetry = enforce_pg_symmetry
+        self.enforce_trs = enforce_trs
+        self.enforce_spin_symmetry = enforce_spin_symmetry
+        self.enforce_permutational_symmetry = enforce_permutational_symmetry
 
+        # Compute the two-body integrals
+        self.two_body = self.generate_two_body_integral(basis="spatial basis", dense=False, sym=sym)
 
+        # Apply antisymmetrization if two-body integrals exist
+        if self.two_body is not None:
+            self.apply_symmetries()
+    def apply_symmetries(self):
+        """Applies the selected symmetries to the two-body integrals."""
+        if self.enforce_pg_symmetry:
+            self.two_body = enforce_pg_symmetry(self.two_body)
+
+        if self.enforce_trs:
+            self.two_body = enforce_trs_symmetry(self.two_body)
+
+        if self.enforce_permutational_symmetry:
+            self.two_body = apply_permutational_symmetry(self.two_body)
+        
+        
 class HamHuck(HamHub):
     r"""
     Huckel Hamiltonian.
@@ -347,36 +406,44 @@ class HamHuck(HamHub):
             sym=1,
             atom_dictionary=None,
             bond_dictionary=None,
+            enforce_pg_symmetry=False,
+            enforce_trs=False,
+            enforce_spin_symmetry=False,
+            enforce_permutational_symmetry=False,
     ):
         r"""
-        Huckel hamiltonian.
-
-        Parameters
-        ----------
-        connectivity: list, np.ndarray
-            list of tuples that specifies sites and bonds between them
-            or symmetric np.ndarray of shape (n_sites, n_sites) that specifies
-            the connectivity between sites.
-            For example, for a linear chain of 4 sites, the connectivity
-            can be specified as [(C1, C2, 1), (C2, C3, 1), (C3, C4, 1)]
-        alpha: float
-            specifies the site energy if all sites are equivalent.
-            Default value is the 2p-pi orbital of Carbon
-        beta: float
-            specifies the resonance energy, hopping term,
-            if all bonds are equivalent.
-            The default value is appropriate for a pi-bond between Carbon atoms
-        sym: int
-             symmetry of the Hamiltonian: int [1, 2, 4, 8]. Default is 1
-
-        Notes
+        Hückel Hamiltonian.
+         Notes
         -----
         The Hamiltonian is given by:
-
         .. math::
             \hat{H}_{\mathrm{PPP}\mathrm{P}} =
             \sum_{pq}h_{pq} a_{p}^{\dagger}a_{q}
 
+        Parameters
+        ----------
+        connectivity: list, np.ndarray
+            List of tuples that specify sites and bonds between them
+            or symmetric np.ndarray of shape (n_sites, n_sites) that specifies
+            the connectivity between sites.
+            Example: [(C1, C2, 1), (C2, C3, 1), (C3, C4, 1)]
+        alpha: float
+            Specifies the site energy if all sites are equivalent.
+            Default value is the 2p-pi orbital of Carbon
+        beta: float
+            Specifies the resonance energy, hopping term,
+            if all bonds are equivalent.
+            The default value is appropriate for a pi-bond between Carbon atoms
+        sym: int
+            Symmetry of the Hamiltonian: int [1, 2, 4, 8]. Default is 1
+        enforce_pg_symmetry: bool
+            Whether to enforce point-group symmetry during antisymmetrization
+        enforce_trs: bool
+            Whether to enforce time-reversal symmetry
+        enforce_spin_symmetry: bool
+            Whether to enforce spin symmetry
+        enforce_permutational_symmetry: bool
+            Whether to enforce permutational symmetry
         """
         super().__init__(
             connectivity=connectivity,
@@ -388,9 +455,21 @@ class HamHuck(HamHub):
             atom_dictionary=atom_dictionary,
             bond_dictionary=bond_dictionary,
         )
+
         self.charges = np.zeros(self.n_sites)
 
+        # Compute two-body integrals using the existing method
+        self.two_body = self.generate_two_body_integral(basis="spatial", dense=False, sym=sym)
 
+        # Apply antisymmetrization if two-body integrals exist
+        if self.two_body is not None:
+            self.two_body = antisymmetrize_two_electron_integrals(
+                self.two_body,
+                enforce_pg_symmetry=enforce_pg_symmetry,
+                enforce_trs=enforce_trs,
+                enforce_spin_symmetry=enforce_spin_symmetry,
+                enforce_permutational_symmetry=enforce_permutational_symmetry
+            )
 class HamHeisenberg(HamiltonianAPI):
     r"""XXZ Heisenberg Hamiltonian."""
 
@@ -398,9 +477,22 @@ class HamHeisenberg(HamiltonianAPI):
                  mu: np.ndarray,
                  J_eq: np.ndarray,
                  J_ax: np.ndarray,
-                 connectivity: np.ndarray = None
+                 connectivity: np.ndarray = None,
+                 enforce_pg_symmetry=False,
+                 enforce_trs=False,
+                 enforce_spin_symmetry=False,
+                 enforce_permutational_symmetry=False
                  ):
-        r"""Initialize XXZ Heisenberg Hamiltonian.
+        r"""
+        Initialize XXZ Heisenberg Hamiltonian.
+         Notes
+        -----
+        The form of the Hamiltonian is given by:
+        .. math::
+            \hat{H}_{X X Z}=\sum_p\left(\mu_p^Z-J_{p p}^{\mathrm{eq}}\right)
+            S_p^Z+\sum_{p q} J_{p q}^{\mathrm{ax}} S_p^Z S_q^Z+\sum_{p q}
+            J_{p q}^{\mathrm{eq}} S_p^{+} S_q^{-}
+
 
         Parameters
         ----------
@@ -411,23 +503,19 @@ class HamHeisenberg(HamiltonianAPI):
         J_ax: np.ndarray
             J axial term
         connectivity: np.ndarray
-            symmetric numpy array that specifies the connectivity between sites
-
-        Notes
-        -----
-        The form of the Hamiltonian is given by:
-
-        .. math::
-            \hat{H}_{X X Z}=\sum_p\left(\mu_p^Z-J_{p p}^{\mathrm{eq}}\right)
-            S_p^Z+\sum_{p q} J_{p q}^{\mathrm{ax}} S_p^Z S_q^Z+\sum_{p q}
-            J_{p q}^{\mathrm{eq}} S_p^{+} S_q^{-}
-
+            Symmetric numpy array that specifies the connectivity between sites
+        enforce_pg_symmetry: bool
+            Whether to enforce point-group symmetry during antisymmetrization
+        enforce_trs: bool
+            Whether to enforce time-reversal symmetry
+        enforce_spin_symmetry: bool
+            Whether to enforce spin symmetry
+        enforce_permutational_symmetry: bool
+            Whether to enforce permutational symmetry
         """
         if connectivity is not None:
             self.connectivity = connectivity
             self.n_sites = connectivity.shape[0]
-            # if J_eq and J_ax are floats then convert them to numpy arrays
-            # by multiplying with connectivity matrix
             if isinstance(J_eq, (int, float)):
                 self.J_eq = J_eq * connectivity
                 self.J_ax = J_ax * connectivity
@@ -445,14 +533,25 @@ class HamHeisenberg(HamiltonianAPI):
                 self.J_eq = J_eq
                 self.J_ax = J_ax
             else:
-                raise TypeError("J_eq and J_ax should be numpy arrays of the same shape")  # noqa: E501
+                raise TypeError("J_eq and J_ax should be numpy arrays of the same shape")
 
         self.mu = np.array(mu)
         self.atom_types = None
         self.zero_energy = None
         self.one_body = None
-        self.two_body = None
-        self._sym = 1
+
+        # Compute two-body integrals if applicable
+        self.two_body = self.generate_two_body_integral(basis="spinorbital basis", dense=False, sym=1)
+
+        # Apply antisymmetrization if two-body integrals exist
+        if self.two_body is not None:
+            self.two_body = antisymmetrize_two_electron_integrals(
+                self.two_body,
+                enforce_pg_symmetry=enforce_pg_symmetry,
+                enforce_trs=enforce_trs,
+                enforce_spin_symmetry_func=None,
+                enforce_permutational_symmetry=enforce_permutational_symmetry
+            )
 
     def generate_zero_body_integral(self):
         """
@@ -481,6 +580,7 @@ class HamHeisenberg(HamiltonianAPI):
         -------
         scipy.sparse.csr_matrix or np.ndarray
         """
+        
         if basis == 'spatial basis':
             if self.J_ax.shape != (self.n_sites, self.n_sites):
                 raise TypeError("J_ax matrix has wrong basis")
@@ -521,8 +621,15 @@ class HamHeisenberg(HamiltonianAPI):
             else:
                 raise TypeError("mu array has wrong basis")
 
+        # sum of J_ax_ij for j>i
+        sum_J_ax_ij = (np.sum(J_ax, axis=1) - np.diag(J_ax)) / 2
+        # if only two sites are present,
+        # then no need to devide by 2 two avoid double counting
+        if sum_J_ax_ij.shape[0] == 2:
+            sum_J_ax_ij *= 2
+
         one_body_term = 0.5 * diags(mu - np.diag(J_eq) -
-                                    (np.sum(J_ax, axis=1) - np.diag(J_ax)) / 2,
+                                    sum_J_ax_ij,
                                     format="csr")
 
         self.one_body = one_body_term
@@ -547,6 +654,7 @@ class HamHeisenberg(HamiltonianAPI):
         -------
         scipy.sparse.csr_matrix or np.ndarray
         """
+        
         n_sp = self.n_sites
         Nv = 2 * n_sp
         v = lil_matrix((Nv * Nv, Nv * Nv))
@@ -576,12 +684,15 @@ class HamHeisenberg(HamiltonianAPI):
                     v[i, j] = J_eq[p, q]
 
         v = v.tocsr()
+        print(f"Debug: generate_two_body_integral called with basis='{basis}'")
 
         # expanding symmetry
         v = expand_sym(sym, v, 2)
         self.two_body = v
         if basis == "spatial basis":
+            v = v.tolil()
             v = self.to_spatial(sym=sym, dense=False, nbody=2)
+            v=v.tocsr()
         elif basis == "spinorbital basis":
             pass
         else:
@@ -619,6 +730,8 @@ class HamIsing(HamHeisenberg):
             \hat{H}_{Ising}=\sum_p\mu_p^Z
             S_p^Z+\sum_{p q} J_{p q}^{\mathrm{ax}} S_p^Z S_q^Z
         """
+        if isinstance(connectivity, csr_matrix):  #
+            connectivity = connectivity.tolil()  
         if isinstance(J_ax, float):
             J_eq = 0
         elif isinstance(J_ax, np.ndarray):
