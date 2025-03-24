@@ -6,7 +6,7 @@ import pytest
 
 
 from scipy.sparse import csr_matrix, diags, lil_matrix, hstack, vstack, \
-SparseEfficiencyWarning
+    SparseEfficiencyWarning
 
 from .api import HamiltonianAPI
 
@@ -46,10 +46,10 @@ class HamPPP(HamiltonianAPI):
             atom_dictionary=None,
             bond_dictionary=None,
             orbital_overlap=None,
-            enforce_pg_symmetry = False,
-            enforce_trs = False,
-            enforce_spin_symmetry = False,
-            enforce_permutational_symmetry = False,
+            enforce_pg_symmetry=False,
+            enforce_trs=False,
+            enforce_spin_symmetry=False,
+            enforce_permutational_symmetry=False,
 
     ):
         r"""
@@ -118,15 +118,14 @@ class HamPPP(HamiltonianAPI):
         self.enforce_spin_symmetry = enforce_spin_symmetry
         self.enforce_permutational_symmetry = enforce_permutational_symmetry
 
-        self.two_body = self.generate_two_body_integral(basis="spatial basis", dense=False, sym=self._sym)
+        self.two_body = self.generate_two_body_integral(
+            basis="spatial basis", dense=False, sym=self._sym)
         if self.two_body is not None:
             self.two_body = antisymmetrize_two_electron_integrals(
                 self.two_body,
                 enforce_pg_symmetry=self.enforce_pg_symmetry,
                 enforce_trs=self.enforce_trs,
-                enforce_permutational_symmetry=self.enforce_permutational_symmetry
-            )
-
+                enforce_permutational_symmetry=self.enforce_permutational_symmetry)
 
     def generate_zero_body_integral(self):
         r"""Generate zero body integral.
@@ -374,11 +373,13 @@ class HamHub(HamPPP):
         self.enforce_permutational_symmetry = enforce_permutational_symmetry
 
         # Compute the two-body integrals
-        self.two_body = self.generate_two_body_integral(basis="spatial basis", dense=False, sym=sym)
+        self.two_body = self.generate_two_body_integral(
+            basis="spatial basis", dense=False, sym=sym)
 
         # Apply antisymmetrization if two-body integrals exist
         if self.two_body is not None:
             self.apply_symmetries()
+
     def apply_symmetries(self):
         """Applies the selected symmetries to the two-body integrals."""
         if self.enforce_pg_symmetry:
@@ -389,8 +390,8 @@ class HamHub(HamPPP):
 
         if self.enforce_permutational_symmetry:
             self.two_body = apply_permutational_symmetry(self.two_body)
-        
-        
+
+
 class HamHuck(HamHub):
     r"""
     Huckel Hamiltonian.
@@ -459,7 +460,8 @@ class HamHuck(HamHub):
         self.charges = np.zeros(self.n_sites)
 
         # Compute two-body integrals using the existing method
-        self.two_body = self.generate_two_body_integral(basis="spatial", dense=False, sym=sym)
+        self.two_body = self.generate_two_body_integral(
+            basis="spatial", dense=False, sym=sym)
 
         # Apply antisymmetrization if two-body integrals exist
         if self.two_body is not None:
@@ -470,6 +472,8 @@ class HamHuck(HamHub):
                 enforce_spin_symmetry=enforce_spin_symmetry,
                 enforce_permutational_symmetry=enforce_permutational_symmetry
             )
+
+
 class HamHeisenberg(HamiltonianAPI):
     r"""XXZ Heisenberg Hamiltonian."""
 
@@ -533,7 +537,8 @@ class HamHeisenberg(HamiltonianAPI):
                 self.J_eq = J_eq
                 self.J_ax = J_ax
             else:
-                raise TypeError("J_eq and J_ax should be numpy arrays of the same shape")
+                raise TypeError(
+                    "J_eq and J_ax should be numpy arrays of the same shape")
 
         self.mu = np.array(mu)
         self.atom_types = None
@@ -541,7 +546,8 @@ class HamHeisenberg(HamiltonianAPI):
         self.one_body = None
 
         # Compute two-body integrals if applicable
-        self.two_body = self.generate_two_body_integral(basis="spinorbital basis", dense=False, sym=1)
+        self.two_body = self.generate_two_body_integral(
+            basis="spinorbital basis", dense=False, sym=1)
 
         # Apply antisymmetrization if two-body integrals exist
         if self.two_body is not None:
@@ -580,7 +586,7 @@ class HamHeisenberg(HamiltonianAPI):
         -------
         scipy.sparse.csr_matrix or np.ndarray
         """
-        
+
         if basis == 'spatial basis':
             if self.J_ax.shape != (self.n_sites, self.n_sites):
                 raise TypeError("J_ax matrix has wrong basis")
@@ -654,7 +660,7 @@ class HamHeisenberg(HamiltonianAPI):
         -------
         scipy.sparse.csr_matrix or np.ndarray
         """
-        
+
         n_sp = self.n_sites
         Nv = 2 * n_sp
         v = lil_matrix((Nv * Nv, Nv * Nv))
@@ -692,7 +698,7 @@ class HamHeisenberg(HamiltonianAPI):
         if basis == "spatial basis":
             v = v.tolil()
             v = self.to_spatial(sym=sym, dense=False, nbody=2)
-            v=v.tocsr()
+            v = v.tocsr()
         elif basis == "spinorbital basis":
             pass
         else:
@@ -731,7 +737,7 @@ class HamIsing(HamHeisenberg):
             S_p^Z+\sum_{p q} J_{p q}^{\mathrm{ax}} S_p^Z S_q^Z
         """
         if isinstance(connectivity, csr_matrix):  #
-            connectivity = connectivity.tolil()  
+            connectivity = connectivity.tolil()
         if isinstance(J_ax, float):
             J_eq = 0
         elif isinstance(J_ax, np.ndarray):
