@@ -233,12 +233,14 @@ def antisymmetrize_two_electron_integrals(
         if n_orbitals ** 2 != eri.shape[0]:
             raise ValueError(
                 f"Cannot reshape ERI of shape {
-                    eri.shape} into (n, n, n, n).")
+                    eri.shape} into (n, n, n, n)."
+            )
         eri = eri.reshape(n_orbitals, n_orbitals, n_orbitals, n_orbitals)
     elif eri.ndim != 4:
         raise ValueError(
             f"ERI must be a 4D array or a 2D array that can be reshaped into 4D, but got shape {
-                eri.shape}.")
+                eri.shape}."
+        )
 
     # Antisymmetrization (Pauli exclusion principle)
     antisymmetrized_eri = 0.5 * (eri - eri.transpose(1, 0, 2, 3))
